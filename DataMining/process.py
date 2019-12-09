@@ -11,8 +11,7 @@ def csv_read(path):
 	return np.array(text),np.array(label)
 
 # Split train.csv into training.csv and testing.csv
-# Methods:
-# training : testing = 
+# training : testing = 35000:3664 = 10:1
 def split():
 	pass
 
