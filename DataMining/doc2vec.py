@@ -131,8 +131,8 @@ def main():
 
 	'''
 	Now we have four files under ./data/ directory:
-	train_seg.txt, train_label.txt;
-	test_seg.txt, test_label.txt
+	train_vec.txt, train_label.txt;
+	test_vec.txt, test_label.txt
 
 	From this, we can use other classifier to classify and predict the reality of our news
 	'''
