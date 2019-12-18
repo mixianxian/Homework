@@ -10,18 +10,17 @@ from gensim.test.utils import get_tmpfile
 # Read csv file as numpy array
 def csv_read(path):
 	data = pd.read_csv(path)
-	tag = data.ix[:,'id']
-	text = data.ix[:,'text']
-	label = data.ix[:,'label']
+	tag = data.loc[:,'id']
+	text = data.loc[:,'text']
+	label = data.loc[:,'label']
 	return np.array(tag),np.array(text),np.array(label)
 
 # Split train.csv into training.csv and testing.csv
 # Save train_label.txt and test_label.txt
 
-# training : testing = 35000:3471 = 10:1
+# training : testing = 34997:3471 = 10:1
 def split(text,label):
-	index = np.arange(38471)
-	random.shuffle(index)
+	index = np.random.permutation(38471)
 	test_index = index[:3471]
 
 	test_text = text[test_index]
@@ -30,22 +29,34 @@ def split(text,label):
 	train_text = np.delete(text,test_index,0)
 	train_label = np.delete(label,test_index,0)
 
-	np.savetxt('data/train_label.txt',train_label,'%d')
-	np.savetxt('data/test_label.txt',test_label,'%d')
+	'''
+	train_label_data = pd.DataFrame(train_label,columns=['label'])
+	train_label_data.to_csv('data/train_label.csv',index=False)
+	test_label_data = pd.DataFrame(test_label,columns=['label'])
+	test_label_data.to_csv('data/test_label.csv',index=False)
+	'''
 
-	return train_text,test_text
+	#np.savetxt('data/train_label.txt',train_label,'%d')
+	#np.savetxt('data/test_label.txt',test_label,'%d')
 
-def segmentation(doc,savepath,stop_listpath=None):
+	return train_text,test_text,train_label,test_label
+
+def segmentation(doc,label,savepath,stop_listpath=None):
 	if stop_listpath != None:
 		stop_list = [line[:-1] for line in open(stop_listpath,encoding='utf-8')]
 	else:
 		stop_list = []
 	seg_doc = []
-	with open(savepath,'w',encoding='utf-8') as f:
-		for sentence in doc:
-			seg_result = [word for word in jieba.cut(sentence) if word not in stop_list]
-			seg_doc.append(seg_result)
-			f.write(' '.join(seg_result)+'\n')
+	for i,sentence in enumerate(doc):
+		seg_cut = [word for word in jieba.cut(sentence) if word not in stop_list]
+		if seg_cut == []:
+			label = np.delete(label,i,0)
+		else:
+			seg_doc.append(' '.join(seg_cut))			
+	print(len(seg_doc))
+	seg_doc_data = pd.DataFrame(seg_doc,columns=['text'])
+	seg_doc_data.to_csv(savepath,index=False)
+	np.savetxt(savepath[:-7]+'label.txt',label,'%d')
 	return seg_doc
 
 # Try to use iterator to save memory
@@ -56,18 +67,20 @@ class TrainDoc:
 		self.filepath = filepath
 
 	def __iter__(self):
-		for i,line in enumerate(open(self.filepath,encoding='utf-8')):
-			yield TaggedDocument(line[:-1].split(),[i])
-
+		data = pd.read_csv(self.filepath)
+		for i,line in enumerate(data.loc[:,'text']):
+			yield TaggedDocument(line.split(),[i])
+'''
 class PredicDoc:
 	"""docstring for PredicDoc"""
 	def __init__(self, filepath):
 		self.filepath = filepath
 
 	def __iter__(self):
-		for line in open(self.filepath,encoding='utf-8'):
-			yield line[:-1].split()
-
+		data = pd.read_csv(self.filepath)
+		for line in data.loc[:,'text']:
+			yield line
+'''
 def train(modelpath,filepath,vector_size=50,window=3,min_count=20,epochs=10):
 	train_text = TrainDoc(filepath)
 	model = Doc2Vec(vector_size=vector_size,window=window,min_count=min_count,epochs=epochs,sample=1e-5,workers=4)
@@ -76,37 +89,24 @@ def train(modelpath,filepath,vector_size=50,window=3,min_count=20,epochs=10):
 
 	# save the trained model
 	modelname = get_tmpfile(modelpath)
-	model.save(modelname)
+	model.save(modelname)	
 
-	# save these trained doc vector
-	doc_size = len(list(train_text))
-	doc_vec = np.zeros((doc_size,vector_size))
-	for i in range(doc_size):
-		doc_vec[i] = model.docvecs[i]
-	np.savetxt('data/train_vec.txt',doc_vec,'%.12f')
-	
+def predict(modelpath,filepath,savepath):
+	data = pd.read_csv(filepath)
+	predict_text = data.loc[:,'text']
 
-def predict(modelpath,filepath):
-	predict_text = PredicDoc(filepath)
 	model = Doc2Vec.load(modelpath)
 
 	# Infer and save doc_vector of test docs
-	doc_size = len(list(predict_text))
+	doc_size = len(predict_text)
 	vector_size = len(model.docvecs[0])
 	doc_vec = np.zeros((doc_size,vector_size))
 	for i in range(doc_size):
-		doc_vec[i] = model.docvecs[i]
-	np.savetxt('data/test_vec.txt',doc_vec,'%.12f')
-
-def predict_fromfile(modelpath,filepath):
-	stop_listpath = 'data/stopwords_big.txt'
-	modelpath = 'C:\\Users\\Lix\\Documents\\GitFile\\Homework\\DataMining\\models\\big_50_3_10_10_model'
-
-	data = pd.read_csv(filepath)
-	text_doc = data.ix[:,'text']
-	segmentation(test_doc,'data/test_seg.txt',stop_listpath)
-	predict(modelpath, 'data/test_seg.txt')
-
+		if i%50 == 0:
+			print(i)
+		model.random.seed(0)
+		doc_vec[i] = model.infer_vector(predict_text[i])
+	np.savetxt(savepath,doc_vec,'%.12f')
 
 def main():
 	# Delete words that contained in stopwords list
@@ -115,19 +115,21 @@ def main():
 
 	# It seems like that the model.save function of gensim doc2vec requires an absolute directory path
 	# Define the model name as stopwordslist_docvecsize_windows__mincount_epochs_model
-	modelpath = 'C:\\Users\\Lix\\Documents\\GitFile\\Homework\\DataMining\\models\\big_50_3_20_10_model'
+	modelpath = 'C:\\Users\\Lix\\Documents\\GitFile\\Homework\\DataMining\\models\\big_50_5_30_30_model'
+	
 
 	# Process the raw data file
-	_,text,label = csv_read('data/train.csv')
-	train_doc,test_doc = split(text, label)
-	segmentation(train_doc,'data/train_seg.txt',stop_listpath)
-	segmentation(test_doc,'data/test_seg.txt',stop_listpath)
+	_,text,label = csv_read('data/raw_train.csv')
+	train_doc,test_doc,train_label,test_label = split(text, label)
+	segmentation(train_doc,train_label,'data/train_seg.csv',stop_listpath)
+	segmentation(test_doc,test_label,'data/test_seg.csv',stop_listpath)
 
 	# Train the doc2vec model
-	train(modelpath,'data/train_seg.txt',vector_size=50,window=3,min_count=10,epochs=10)
+	train(modelpath,'data/train_seg.csv',vector_size=100,window=5,min_count=30,epochs=30)
 
-	# Predict doc_vector of test docs
-	predict(modelpath, 'data/test_seg.txt')
+	# Predict doc_vector of docs
+	predict(modelpath, 'data/train_seg.csv','data/train_vec.txt')
+	predict(modelpath, 'data/test_seg.csv','data/test_vec.txt')
 
 	'''
 	Now we have four files under ./data/ directory:
@@ -141,8 +143,12 @@ def main():
 if __name__ == '__main__':
 	'''
 	In our training task, just use main() function.
-	If you need to obtain doc_vector from test.csv file, use predict_fromfile() function instead
+	If you need to obtain doc_vector from test_seg.csv file, use predict() function instead
 
 	If we try to use k-fold cross validation method, change split() function into a loop
 	'''
 	main()
+	#predict('models/big_50_5_30_30_model', 'data/test_seg.csv','data/testvec.txt')
+	#predict('models/big_50_5_30_30_model', 'data/train_seg.csv','data/trainvec.txt')
+
+
